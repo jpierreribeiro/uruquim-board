@@ -38,7 +38,7 @@ say "register + login (WP104)"
 expect "POST /register" "$(req POST /register "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}")" 201
 code="$(req POST /login "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}")"
 expect "POST /login" "$code" 201
-TOKEN="$(printf '%s' "$BODY" | jq -r '.token')"
+TOKEN="$(cat /tmp/smoke_body | jq -r '.token')"
 [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] && ok "got session token" || bad "no session token"
 expect "POST /login (wrong password)" "$(req POST /login "{\"email\":\"$EMAIL\",\"password\":\"nope\"}")" 401
 expect "GET /me (no token)" "$(req GET /me)" 401
@@ -47,14 +47,14 @@ expect "GET /me (token)"    "$(req GET /me '' "$TOKEN")" 200
 say "projects + RBAC (WP104)"
 code="$(req POST /projects '{"name":"Smoke Project"}' "$TOKEN")"
 expect "POST /projects" "$code" 201
-PID="$(printf '%s' "$BODY" | jq -r '.id')"
+PID="$(cat /tmp/smoke_body | jq -r '.id')"
 expect "GET /projects/:id" "$(req GET "/projects/$PID" '' "$TOKEN")" 200
 
 say "tasks + optimistic conflict (WP105)"
 code="$(req POST "/projects/$PID/tasks" '{"title":"first task"}' "$TOKEN")"
 expect "POST tasks" "$code" 201
-TID="$(printf '%s' "$BODY" | jq -r '.id')"
-VER="$(printf '%s' "$BODY" | jq -r '.version')"
+TID="$(cat /tmp/smoke_body | jq -r '.id')"
+VER="$(cat /tmp/smoke_body | jq -r '.version')"
 expect "PATCH task (correct version)" "$(req PATCH "/tasks/$TID" "{\"version\":$VER,\"status\":\"in_progress\"}" "$TOKEN")" 200
 expect "PATCH task (stale version -> 409)" "$(req PATCH "/tasks/$TID" "{\"version\":$VER,\"title\":\"racing\"}" "$TOKEN")" 409
 expect "POST comment" "$(req POST "/tasks/$TID/comments" '{"body":"a comment"}' "$TOKEN")" 201
@@ -66,7 +66,7 @@ expect "GET tasks (filter status)" "$(req GET "/projects/$PID/tasks?status=in_pr
 say "attachments (WP106; buffered path — a >4MiB file for spool is a manual step)"
 code="$(req POST "/tasks/$TID/attachments?filename=note.txt" 'hello attachment' "$TOKEN" 'Content-Type: text/plain')"
 expect "POST attachment (buffered)" "$code" 201
-AID="$(printf '%s' "$BODY" | jq -r '.id')"
+AID="$(cat /tmp/smoke_body | jq -r '.id')"
 expect "GET attachment metadata" "$(req GET "/attachments/$AID" '' "$TOKEN")" 200
 expect "GET task attachments" "$(req GET "/tasks/$TID/attachments" '' "$TOKEN")" 200
 
