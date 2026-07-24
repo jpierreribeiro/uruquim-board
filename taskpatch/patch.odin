@@ -22,6 +22,7 @@ Task_Patch :: struct {
 	body:        validate.Patch(string), // null clears the body
 	status:      validate.Patch(string), // null is invalid downstream (status NOT NULL)
 	assignee_id: validate.Patch(i64),    // null unassigns
+	due_date:    validate.Patch(string), // null clears the due date; a value is an ISO-8601 string
 }
 
 // parse reads the three-state intent from a raw JSON body. ok=false for a
@@ -69,6 +70,10 @@ parse :: proc(body: []u8) -> (out: Task_Patch, ok: bool) {
 			p, e := read_int_patch(v)
 			if e {return {}, false}
 			out.assignee_id = p
+		case "due_date":
+			p, e := read_string_patch(v)
+			if e {return {}, false}
+			out.due_date = p
 		case:
 			return {}, false // unknown field
 		}

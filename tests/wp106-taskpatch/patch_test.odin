@@ -26,6 +26,24 @@ parses_a_valid_patch :: proc(t: ^testing.T) {
 }
 
 @(test)
+due_date_is_three_state :: proc(t: ^testing.T) {
+	// set
+	set, ok1 := tp.parse(transmute([]byte)string(`{"version":1,"due_date":"2026-08-01T00:00:00Z"}`))
+	testing.expect(t, ok1, "parses")
+	dv, dset := validate.patch_get(set.due_date)
+	testing.expect(t, dset && dv == "2026-08-01T00:00:00Z", "due_date set to the ISO string")
+	// null clears
+	cleared, ok2 := tp.parse(transmute([]byte)string(`{"version":1,"due_date":null}`))
+	testing.expect(t, ok2 && validate.patch_is_null(cleared.due_date), "explicit null due_date is Null (clear)")
+	// absent keeps
+	kept, ok3 := tp.parse(transmute([]byte)string(`{"version":1}`))
+	testing.expect(t, ok3 && validate.patch_is_absent(kept.due_date), "unmentioned due_date is Absent (keep)")
+	// wrong type rejected
+	_, ok4 := tp.parse(transmute([]byte)string(`{"version":1,"due_date":123}`))
+	testing.expect(t, !ok4, "a non-string, non-null due_date is rejected")
+}
+
+@(test)
 distinguishes_null_from_absent_from_set :: proc(t: ^testing.T) {
 	// body explicitly null (clear); assignee set; title absent
 	p, ok := tp.parse(transmute([]byte)string(`{"version":1,"body":null,"assignee_id":42}`))

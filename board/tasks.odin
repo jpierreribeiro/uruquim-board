@@ -34,12 +34,13 @@ TASK_LIST_LIMIT :: 100
 // stable external contract — the rename is physical only, scanned back into the
 // Task_View.body field at the same position.
 TASK_COLUMNS ::
-	"id, project_id, title, description, status, assignee_id, created_at::text, updated_at::text, version, comment_count"
+	"id, project_id, title, description, status, assignee_id, created_at::text, updated_at::text, version, comment_count, due_date::text"
 
 Create_Task :: struct {
 	title:       string        `json:"title"`,
 	body:        Maybe(string) `json:"body"`,
 	assignee_id: Maybe(i64)    `json:"assignee_id"`,
+	due_date:    Maybe(string) `json:"due_date"`, // optional ISO-8601; NULL when absent
 }
 
 // The three-state PATCH intent (Task_Patch) and its parser live in the pure
@@ -57,6 +58,7 @@ Task_View :: struct {
 	updated_at:    string        `json:"updated_at"`,
 	version:       i64           `json:"version"`,
 	comment_count: i64           `json:"comment_count"`,
+	due_date:      Maybe(string) `json:"due_date"`, // JSON null when unset
 }
 
 Task_List :: struct {
@@ -133,13 +135,25 @@ create_task :: proc(ctx: ^web.Context) {
 	if a, has := input.assignee_id.?; has {
 		assignee_param = pg.arg_i64(a)
 	}
+	// due_date is bound as text and cast to timestamptz in SQL — the pg Crystal
+	// has no typed timestamp param (friction F8-8).
+	due_date_param := pg.arg_null()
+	if d, has := input.due_date.?; has {
+		due_date_param = pg.arg_text(d)
+	}
 
 	r, qe := pg.tx_query_one(
 		&tx,
 		"tasks.insert",
-		"INSERT INTO tasks (project_id, title, description, assignee_id) VALUES ($1, $2, $3, $4) RETURNING " +
-		TASK_COLUMNS,
-		{pg.arg_i64(i64(project_id)), pg.arg_text(input.title), body_param, assignee_param},
+		"INSERT INTO tasks (project_id, title, description, assignee_id, due_date) " +
+		"VALUES ($1, $2, $3, $4, $5::timestamptz) RETURNING " + TASK_COLUMNS,
+		{
+			pg.arg_i64(i64(project_id)),
+			pg.arg_text(input.title),
+			body_param,
+			assignee_param,
+			due_date_param,
+		},
 	)
 	defer pg.rows_close(&r)
 	if pg.is_err(qe) {
@@ -436,6 +450,14 @@ patch_task :: proc(ctx: ^web.Context) {
 		assignee_param = pg.arg_i64(v)
 	}
 
+	// due_date: set|null|keep, same three-state encoding. The set value is text
+	// cast to timestamptz in SQL ($11::timestamptz) — F8-8, no typed param.
+	due_date_mode := tp.patch_mode(input.due_date)
+	due_date_param := pg.arg_null()
+	if v, has := validate.patch_get(input.due_date); has {
+		due_date_param = pg.arg_text(v)
+	}
+
 	cmd, ue := pg.tx_execute(
 		&tx,
 		"tasks.update",
@@ -444,6 +466,7 @@ patch_task :: proc(ctx: ^web.Context) {
 		"description = CASE $3 WHEN 'set' THEN $4 WHEN 'null' THEN NULL ELSE description END, " +
 		"status = $5, " +
 		"assignee_id = CASE $6 WHEN 'set' THEN $7 WHEN 'null' THEN NULL ELSE assignee_id END, " +
+		"due_date = CASE $10 WHEN 'set' THEN $11::timestamptz WHEN 'null' THEN NULL ELSE due_date END, " +
 		"updated_at = now(), version = version + 1 " +
 		"WHERE id = $8 AND version = $9",
 		{
@@ -456,6 +479,8 @@ patch_task :: proc(ctx: ^web.Context) {
 			assignee_param,
 			pg.arg_i64(i64(task_id)),
 			pg.arg_i64(input.version),
+			pg.arg_text(due_date_mode),
+			due_date_param,
 		},
 	)
 	if pg.is_err(ue) {
@@ -736,6 +761,7 @@ scan_task :: proc(r: ^pg.Rows, ally: mem.Allocator) -> Task_View {
 	updated, _ := pg.row_text(r, 7, ally)
 	version, _ := pg.row_i64(r, 8)
 	comment_count, _ := pg.row_i64(r, 9)
+	due_date, _ := pg.row_opt_text(r, 10, ally)
 	return Task_View {
 		id = id,
 		project_id = project_id,
@@ -747,6 +773,7 @@ scan_task :: proc(r: ^pg.Rows, ally: mem.Allocator) -> Task_View {
 		updated_at = updated,
 		version = version,
 		comment_count = comment_count,
+		due_date = due_date,
 	}
 }
 
