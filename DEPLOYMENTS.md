@@ -136,3 +136,14 @@ Process kill+restart · graceful deploy/restart · PostgreSQL restart mid-use ·
 malformed JSON/param/wire requests · (soak-covered) slow steady load. Remaining:
 network interruption, upload interruption, migration lock/dirty refusal, proxy
 misconfiguration — deferred so they do not perturb the running soak.
+
+---
+
+## WP110 migration checksum-immutability drill (scratch DB, non-disruptive)
+
+- **Date:** 2026-07-24. Board `master` `c0df594`, `ops/migration-drill.sh`.
+- Ran on a throwaway `board_drill_*` database (never the live board DB or the
+  running service/soak). Result **GREEN**: clean apply of all 7 migrations;
+  idempotent re-run (`applied 0`); a **tampered already-applied migration was
+  REFUSED with `Checksum_Mismatch`** (not silently re-applied); status intact.
+  Closes the G8-2 "clean checksum/immutability behaviour" cell.
