@@ -109,3 +109,30 @@ migration (backfill + expand/contract) continue on this live server.
   recorded green. Remaining drills (network interruption, upload interruption,
   migration lock contention) and the **≥4h soak** continue on this server.
 - **Still owner-gated:** WP112 (human/AI usability study) and WP113 (verdict).
+
+---
+
+## WP110 malformed-request drill + soak early signal (live, non-disruptive)
+
+- **Date:** 2026-07-24. Board `master` `6592315`.
+- **`ops/malformed-drill.sh` — 16/16 green** (run alongside the soak; never
+  restarts the service): malformed / empty / unknown-field / wrong-typed /
+  missing-field JSON all → **400**; garbage/`Basic` bearer → **401**;
+  non-integer path id, `?status=bogus`, `?limit=banana`, traversal filename,
+  missing filename → **400**; and an SQL-injection-shaped project name is stored
+  as a **bound literal** (201, `/health/live` 200, tasks table intact) — the
+  framework rejects bad input with typed 4xx, never a 5xx or a crash, and
+  parametrized queries are proven injection-safe live.
+- **Soak early signal (leak watch):** RSS warmed up 12 → 41 MB in the first ~2
+  min, then **plateaued flat at 41,648 kB** from t≈189 s through t≈503 s (cycles
+  37→97, ~600 responses), `errors=0`, pool steady (open=1, in_use=1, waiters=0).
+  No monotonic growth — a strong early leak-free signal. The full ≥4 h run
+  continues to `/opt/uruquim-verify/soak.log`; the final RSS-growth verdict is
+  checked when it ends (~18:14 UTC).
+
+### WP110 cells now recorded (of the plan §WP110 list)
+
+Process kill+restart · graceful deploy/restart · PostgreSQL restart mid-use ·
+malformed JSON/param/wire requests · (soak-covered) slow steady load. Remaining:
+network interruption, upload interruption, migration lock/dirty refusal, proxy
+misconfiguration — deferred so they do not perturb the running soak.
