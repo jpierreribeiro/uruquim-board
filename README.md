@@ -93,8 +93,12 @@ WP106 — files, validation, search and pagination:
   binary responder and no way to set `Content-Disposition`, so an authenticated,
   safely-dispositioned download is not expressible (friction **F8-4**, confirming
   F8-2's prediction). Metadata is served as JSON; the finding is recorded rather
-  than faked over `web.stream`. **True three-state PATCH** (JSON null vs absent,
-  e.g. to unassign) remains a small WP106 follow-up.
+  than faked over `web.stream`;
+- **true three-state PATCH** on `PATCH /tasks/:id` — the raw JSON is parsed into
+  `validate.Patch` values so **absent** (keep), **JSON null** (clear a nullable
+  column, e.g. unassign or clear the body) and **set** are distinct; unknown keys
+  and wrong types are rejected strictly, and `title`/`status` (NOT NULL columns)
+  reject an explicit null.
 
 WP107 — streamed notifications:
 
