@@ -147,3 +147,30 @@ misconfiguration — deferred so they do not perturb the running soak.
   idempotent re-run (`applied 0`); a **tampered already-applied migration was
   REFUSED with `Checksum_Mismatch`** (not silently re-applied); status intact.
   Closes the G8-2 "clean checksum/immutability behaviour" cell.
+
+---
+
+## #5 — the Corrective Program, live (all F8-1..F8-8 verified in production)
+
+- **Date:** 2026-07-24. Board `corrective-repin` `5836e2e`, against the CORRECTIVE
+  core (`phase8` `03c2bce`) + crystals (`corrective` `7c64d47`).
+- **Deployed after the ≥4h soak PASSED**, so the re-pin did not perturb the RSS
+  measurement. Built + linked with real libpq on the host; migration `0008`
+  (due_date) applied as a deploy step; installed + restarted under systemd.
+- **Smoke:** `ops/smoke.sh` **22/22** on the corrective binary.
+- **The RED tests flipped GREEN live — every corrective WP proven in production:**
+
+  | WP / Friction | Verified live |
+  |---|---|
+  | **C1 / F8-1** | named `web.Status` members produce 409/503/413 on the wire (smoke conflict = 409; readiness = 503) |
+  | **C3 / F8-6** | unfiltered `GET /projects/:id/tasks` → **200** (was the shipped bug's 400); `web.query_int_opt` |
+  | **C5 / F8-8** | `due_date` valid ISO → **201**, stored `timestamptz` with **no `::timestamptz` cast** (`arg_timestamptz` OID typing works live); malformed date → **400** not 500 (`validate.rfc3339`) |
+  | **C2 / F8-4** | `GET /attachments/:id/download` → **200**, bytes on the wire, `Content-Disposition: attachment; filename="note.txt"`, correct `Content-Type` (`web.bytes` + `web.set_header`) |
+  | **C6 / F8-7** | 5 MiB upload with curl's default `Expect: 100-continue` (no `-H "Expect:"`) → **201 spooled=true** (was 417) |
+  | **C4 / F8-5** | `web.stream_live` compiled into the live SSE path (registry-level tested) |
+  | **C7 / F8-3** | `web.request_state` available (ADR-028 amendment; awaiting owner ratification) |
+
+- **Proves:** the Corrective Program's public-API additions work end-to-end against
+  real PostgreSQL and real clients — including the two facets that could only be
+  runtime-verified with libpq (`arg_timestamptz`) and a real socket
+  (`Expect: 100-continue`). **5 deployments recorded** toward the ≥10 threshold.
