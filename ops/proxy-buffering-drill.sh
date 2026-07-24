@@ -8,10 +8,11 @@
 #   BASE=http://127.0.0.1:18080 bash ops/proxy-buffering-drill.sh
 set -uo pipefail
 BASE="${BASE:-http://127.0.0.1:18080}"
-# The board is reachable from a sibling container via the host gateway.
-GW=172.17.0.1
 BOARD_PORT="${BASE##*:}"
-UPSTREAM="http://${GW}:${BOARD_PORT}"
+# Use --network host so the proxy reaches the board on loopback — the box runs UFW
+# (INPUT policy DROP), which blocks a bridged container from reaching the host
+# gateway, but host networking sees 127.0.0.1 directly.
+UPSTREAM="http://127.0.0.1:${BOARD_PORT}"
 NAME="uruquim-proxy-drill"
 WORK=$(mktemp -d)
 fail=0
@@ -34,12 +35,12 @@ probe() { # $1 = proxy port
     "http://127.0.0.1:$1/projects/$P/events" -H "Authorization: Bearer $T" 2>/dev/null || echo "000 ttfb=timeout"
 }
 
-run_nginx() { # $1 = buffering (on|off), $2 = host port
+run_nginx() { # $1 = buffering (on|off), $2 = listen port
   cat > "$WORK/nginx.conf" <<CONF
 events {}
 http {
   server {
-    listen 80;
+    listen $2;
     location / {
       proxy_pass $UPSTREAM;
       proxy_http_version 1.1;
@@ -51,7 +52,7 @@ http {
 }
 CONF
   docker rm -f "$NAME" >/dev/null 2>&1 || true
-  docker run -d --name "$NAME" -p "$2:80" -v "$WORK/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:alpine >/dev/null 2>&1
+  docker run -d --name "$NAME" --network host -v "$WORK/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:alpine >/dev/null 2>&1
   sleep 2
 }
 
