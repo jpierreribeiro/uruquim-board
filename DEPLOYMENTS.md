@@ -35,3 +35,44 @@ outcome, and anything learned. Synthetic data only.
   Hardening phase was validated, unprompted, by the first real deployment: the
   failure was clean and the recorded remedy worked. This requirement is now
   baked into `ops/uruquim-board.service`.
+
+---
+
+## #2 — WP104–109: identity, relational, files/spool, SSE, observability
+
+- **Date:** 2026-07-24
+- **Host:** `45.32.215.234`, isolated under `/opt/uruquim-verify`.
+- **Pins:** board `master` (`46ff710` → the WP104–109 code), core `uruquim@closure`, crystals `main` `36db55c`, toolchain `819fdc7`.
+- **Steps:** synced the board; built + linked against real libpq (`BOARD_LINK=1`, gate green incl. 14 pure tests on the deploy host); built the `migrate` tool; applied migrations **0002_projects, 0003_tasks, 0004_attachments** as a deploy step (`migrate up` — 0001 already applied in #1; the `_uruquim_migrations` tracker shows all 4 clean, non-dirty, checksummed); added the WP106 storage env (`BOARD_STORAGE_DIR`/`BOARD_SPOOL_DIR`/`BOARD_MAX_ATTACHMENT`); installed the binary; `systemctl restart`.
+- **Result:** service `active`, `serving on :18080`, no restart loop (`LimitMEMLOCK=infinity`). Smoke test **found 2 real bugs** (below).
+
+## #3 — bugfix redeploy (found by deployment #2 proof-by-use)
+
+- **Date:** 2026-07-24. Board `master` `a830b4d`.
+- **Two bugs the smoke test surfaced against live PostgreSQL, both fixed:**
+  1. the task-list optional `assignee` filter used `web.query_int` (the
+     REQUIRED-param reader, which commits a 400 on absence) → every unfiltered
+     list 400'd. Fixed to `web.query` (presence) + `web.query_int_or`. → **F8-6**.
+  2. `GET /attachments/:id` selected the unqualified `ATTACHMENT_COLUMNS` in a
+     `attachments JOIN tasks` where `id`/`created_at` are ambiguous → PostgreSQL
+     500. Fixed with `a.`-qualified columns.
+- **Result after redeploy — GREEN:**
+
+  | Suite | Result |
+  |---|---|
+  | `ops/smoke.sh` (WP104–109) | **22 / 22 passed** |
+  | `ops/concurrency-check.sh` (WP108) | two-client same-version PATCH → **one 200 + one 409**; pool-at-cap → `/health/live` stays 200 while a task-list gets a fast 503 (39×200, 1×503) |
+  | `ops/seed.sql` dataset | **5 projects, 600 tasks, 2400 comments** (≥ the pre-registered ≥5/≥500/≥2000) |
+  | large attachment (5 MiB > `max_body`) | **spooled=true**, 201 — the Phase-7 spool path proven live end-to-end |
+
+- **LEARNED — a third framework finding, F8-7:** a 5 MiB upload with curl's
+  default `Expect: 100-continue` header returned **HTTP 417** (empty body); the
+  framework does not honor/ignore the universal `100-continue` expectation, so
+  large uploads from default clients (curl, python-requests) fail until the
+  header is stripped (`-H "Expect:"`). Recorded in the core friction ledger.
+
+### Deployment threshold progress
+
+3 of the pre-registered ≥10 deployments recorded (#1 WP103, #2 WP104–109, #3
+bugfix). Remaining deploys, the ≥4h soak, WP110 drills, and WP111's ≥5th
+migration (backfill + expand/contract) continue on this live server.

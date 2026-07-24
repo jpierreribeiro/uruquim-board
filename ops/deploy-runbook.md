@@ -90,8 +90,20 @@ into the unit.
 
 Run `ops/smoke.sh` (below) against `http://127.0.0.1:18080`. It exercises the
 WP104–109 happy paths and the optimistic-conflict 409, and checks `/admin/stats`
-and `/obs/metrics`. A large (> 4 MiB) attachment to prove the spool path is a
-separate manual step (generate a file, POST it, confirm `spooled=true`).
+and `/obs/metrics`.
+
+A large (> 4 MiB) attachment to prove the spool path is a separate manual step.
+**Strip the `Expect` header** — curl adds `Expect: 100-continue` for large
+bodies and the framework answers `417` to it (friction F8-7), so the upload must
+send `-H "Expect:"`:
+
+```sh
+dd if=/dev/urandom of=/tmp/big.bin bs=1M count=5
+curl -sS -X POST "$BASE/tasks/$TID/attachments?filename=big.bin" \
+     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/octet-stream" \
+     -H "Expect:" --data-binary @/tmp/big.bin | jq '{id,byte_size,spooled}'
+# expect: spooled=true, byte_size=5242880
+```
 
 ## 7. Record the deployment
 
