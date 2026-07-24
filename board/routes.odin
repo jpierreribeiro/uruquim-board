@@ -11,8 +11,23 @@ import web "uruquim:web"
 // register mounts the board's application routes. The app owns these, so it
 // registers them itself rather than mounting a detached Crystal router.
 register :: proc(app: ^web.App) {
+	// Lifecycle (WP103).
 	web.get(app, "/", index)
 	web.get(app, "/ready", ready)
+
+	// Identity (WP104). Register and login are public; the token is a bearer
+	// credential (friction F8-2: no public Set-Cookie), returned by login and
+	// sent as `Authorization: Bearer <token>` thereafter.
+	web.post(app, "/register", register_account)
+	web.post(app, "/login", login)
+	web.post(app, "/logout", logout)
+	web.get(app, "/me", me)
+
+	// Projects and per-project role membership (WP104 authorization). Full task
+	// and comment workflows build on these in WP105.
+	web.post(app, "/projects", create_project)
+	web.get(app, "/projects/:id", get_project)
+	web.post(app, "/projects/:id/members", invite_member)
 }
 
 // index is the boring health page: it proves lifecycle and delivery before any
