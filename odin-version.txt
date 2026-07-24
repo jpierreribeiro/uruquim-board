@@ -1,0 +1,4 @@
+release=dev-2026-07a
+commit=819fdc7
+linux_amd64_asset=odin-linux-amd64-dev-2026-07a.tar.gz
+linux_amd64_sha256=32a7678abc66f1af7353abb5b0b5da47d94b7e663f6d250df29bc9117e864c10
