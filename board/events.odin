@@ -46,7 +46,7 @@ subscribe_events :: proc(ctx: ^web.Context) {
 		// No connection to detach (the in-memory test transport) or the open-
 		// stream cap is reached — fall back to an ordinary response. 503 has no
 		// named member in the public enum (friction F8-1).
-		web.text(ctx, web.Status(503), "streaming unavailable")
+		web.text(ctx, .Service_Unavailable, "streaming unavailable")
 		return
 	}
 

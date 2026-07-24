@@ -29,6 +29,13 @@ valid_filename :: proc(name: string) -> bool {
 		if b < 0x20 {
 			return false // control characters (includes NUL, CR, LF, TAB)
 		}
+		// A double-quote or semicolon would break out of a
+		// `Content-Disposition: attachment; filename="<name>"` header value, so a
+		// filename that is placed there unescaped must not contain them. Rejecting
+		// at upload keeps every stored filename header-safe by construction.
+		if b == '"' || b == ';' {
+			return false
+		}
 	}
 	return true
 }

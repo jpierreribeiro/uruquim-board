@@ -137,16 +137,23 @@ create_task :: proc(ctx: ^web.Context) {
 	}
 	// due_date is bound as text and cast to timestamptz in SQL — the pg Crystal
 	// has no typed timestamp param (friction F8-8).
+	// due_date is bound with the C5 typed timestamp param (friction F8-8), so the
+	// SQL needs no `$5::timestamptz` cast. Validate the ISO string first so a
+	// malformed value is a 400, not a database error.
 	due_date_param := pg.arg_null()
 	if d, has := input.due_date.?; has {
-		due_date_param = pg.arg_text(d)
+		if !validate.rfc3339_valid(d) {
+			web.bad_request(ctx, "due_date must be an RFC 3339 timestamp")
+			return
+		}
+		due_date_param = pg.arg_timestamptz(d)
 	}
 
 	r, qe := pg.tx_query_one(
 		&tx,
 		"tasks.insert",
 		"INSERT INTO tasks (project_id, title, description, assignee_id, due_date) " +
-		"VALUES ($1, $2, $3, $4, $5::timestamptz) RETURNING " + TASK_COLUMNS,
+		"VALUES ($1, $2, $3, $4, $5) RETURNING " + TASK_COLUMNS,
 		{
 			pg.arg_i64(i64(project_id)),
 			pg.arg_text(input.title),
@@ -224,17 +231,12 @@ list_tasks :: proc(ctx: ^web.Context) {
 		status_filter = pg.arg_text(s)
 	}
 	assignee_filter := pg.arg_null()
-	// `assignee` is an OPTIONAL typed filter. web.query_int cannot serve it: it is
-	// the REQUIRED-parameter reader and commits a 400 when the param is absent.
-	// web.query_int_or does not commit on absence, but its ok=true for both
-	// absent (default) and present-valid, so it cannot tell "filter" from "no
-	// filter". The optional-typed read is therefore two calls: web.query for
-	// presence, then query_int_or for a present-but-malformed 400 (friction F8-6).
-	if _, has := web.query(ctx, "assignee"); has {
-		a, aok := web.query_int_or(ctx, "assignee", 0)
-		if !aok {
-			return // present but malformed: query_int_or committed the 400
-		}
+	// `assignee` is an OPTIONAL typed filter. Corrective WP C3 (friction F8-6) added
+	// web.query_int_opt, the single reader that reports presence: absent = no filter
+	// (no 400), present+valid carries the value, present+malformed commits the 400.
+	if a, present, aok := web.query_int_opt(ctx, "assignee"); !aok {
+		return // present but malformed: query_int_opt committed the 400
+	} else if present {
 		assignee_filter = pg.arg_i64(i64(a))
 	}
 
@@ -450,12 +452,17 @@ patch_task :: proc(ctx: ^web.Context) {
 		assignee_param = pg.arg_i64(v)
 	}
 
-	// due_date: set|null|keep, same three-state encoding. The set value is text
-	// cast to timestamptz in SQL ($11::timestamptz) — F8-8, no typed param.
+	// due_date: set|null|keep, same three-state encoding. The set value uses the
+	// C5 typed timestamp param (friction F8-8) — no `$11::timestamptz` cast — and
+	// is RFC 3339-validated first so a malformed value is a 400, not a DB error.
 	due_date_mode := tp.patch_mode(input.due_date)
 	due_date_param := pg.arg_null()
 	if v, has := validate.patch_get(input.due_date); has {
-		due_date_param = pg.arg_text(v)
+		if !validate.rfc3339_valid(v) {
+			web.bad_request(ctx, "due_date must be an RFC 3339 timestamp")
+			return
+		}
+		due_date_param = pg.arg_timestamptz(v)
 	}
 
 	cmd, ue := pg.tx_execute(
@@ -466,7 +473,7 @@ patch_task :: proc(ctx: ^web.Context) {
 		"description = CASE $3 WHEN 'set' THEN $4 WHEN 'null' THEN NULL ELSE description END, " +
 		"status = $5, " +
 		"assignee_id = CASE $6 WHEN 'set' THEN $7 WHEN 'null' THEN NULL ELSE assignee_id END, " +
-		"due_date = CASE $10 WHEN 'set' THEN $11::timestamptz WHEN 'null' THEN NULL ELSE due_date END, " +
+		"due_date = CASE $10 WHEN 'set' THEN $11 WHEN 'null' THEN NULL ELSE due_date END, " +
 		"updated_at = now(), version = version + 1 " +
 		"WHERE id = $8 AND version = $9",
 		{

@@ -27,7 +27,7 @@ Message_Body :: struct {
 // detail on the wire.
 //
 // FRICTION F8-1: 503 has no named member in the public `web.Status` enum, so it
-// is spelled `web.Status(503)` — the same cast the framework's own reference app
+// is spelled `.Service_Unavailable` — the same cast the framework's own reference app
 // (crystals examples/notes) is forced to make. Recorded in the ledger.
 @(private)
 respond_db_error :: proc(ctx: ^web.Context, e: pg.Error) {
@@ -35,7 +35,7 @@ respond_db_error :: proc(ctx: ^web.Context, e: pg.Error) {
 	case .Pool_Exhausted, .Timeout, .Canceled, .Connection_Lost:
 		web.json(
 			ctx,
-			web.Status(503),
+			.Service_Unavailable,
 			Message{Message_Body{code = "unavailable", message = "The service is temporarily unavailable"}},
 		)
 	case:
@@ -47,7 +47,7 @@ respond_db_error :: proc(ctx: ^web.Context, e: pg.Error) {
 // has no named member in the public enum (F8-1) — the cast is the workaround.
 @(private)
 respond_conflict :: proc(ctx: ^web.Context, message: string) {
-	web.json(ctx, web.Status(409), Message{Message_Body{code = "conflict", message = message}})
+	web.json(ctx, .Conflict, Message{Message_Body{code = "conflict", message = message}})
 }
 
 // handler_arena is a growing arena the caller frees at handler end. Row strings

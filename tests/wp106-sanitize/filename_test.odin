@@ -23,6 +23,16 @@ rejects_traversal_and_separators :: proc(t: ^testing.T) {
 }
 
 @(test)
+rejects_header_hostile_chars :: proc(t: ^testing.T) {
+	// A filename goes into a Content-Disposition header value on download, so a
+	// double-quote or semicolon (which would break out of filename="...") is
+	// rejected at upload.
+	for name in ([]string{"in\"jection.txt", "a;b.txt", "\"quoted\".pdf"}) {
+		testing.expect(t, !sanitize.valid_filename(name), "quotes/semicolons are rejected (header safety)")
+	}
+}
+
+@(test)
 rejects_control_chars_and_bounds :: proc(t: ^testing.T) {
 	testing.expect(t, !sanitize.valid_filename(""), "empty is rejected")
 	testing.expect(t, !sanitize.valid_filename("with\nnewline"), "newline is rejected")

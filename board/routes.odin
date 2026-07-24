@@ -37,12 +37,13 @@ register :: proc(app: ^web.App) {
 	web.post(app, "/tasks/:id/comments", add_comment)
 	web.get(app, "/tasks/:id/comments", list_comments)
 
-	// Attachments (WP106): buffered + spool upload, metadata list/get. Byte
-	// download is not expressible through the public surface (friction F8-4) —
-	// only metadata is served. Task listing gains keyset pagination + filters.
+	// Attachments (WP106): buffered + spool upload, metadata list/get, and (since
+	// the corrective WPs) the actual byte download with Content-Disposition
+	// (friction F8-4, now expressible via web.bytes + web.set_header).
 	web.post(app, "/tasks/:id/attachments", upload_attachment)
 	web.get(app, "/tasks/:id/attachments", list_attachments)
 	web.get(app, "/attachments/:id", get_attachment)
+	web.get(app, "/attachments/:id/download", download_attachment)
 
 	// Live board (WP107): an SSE subscription per project. Mutations publish
 	// "what changed"; the client refetches through the authorized routes.
@@ -73,15 +74,13 @@ index :: proc(ctx: ^web.Context) {
 ready :: proc(ctx: ^web.Context) {
 	st := web.state(ctx, App_State)
 
-	// FRICTION F8-1 (see planning/phase-8-friction-ledger.md in the core repo):
-	// the public `web.Status` enum has no 503. Readiness — a universal deploy
-	// pattern — needs it, so this casts the raw int `web.Status(503)`, exactly as
-	// the framework's own reference app (crystals examples/notes) is forced to.
-	// Kept as the workaround; the ledger proposes adding 503 (and 429) to the enum.
+	// Readiness answers 503 when the pool is exhausted or the database is
+	// unreachable. Corrective WP C1 (friction F8-1) added the named member, so this
+	// is `.Service_Unavailable` — no raw-int cast.
 	c, ae := pg.acquire(&st.db)
 	if pg.is_err(ae) {
 		// Pool exhausted or database unreachable within the acquire timeout.
-		web.text(ctx, web.Status(503), "not ready: database")
+		web.text(ctx, .Service_Unavailable, "not ready: database")
 		return
 	}
 	defer pg.release(&st.db, &c)
@@ -89,7 +88,7 @@ ready :: proc(ctx: ^web.Context) {
 	r, qe := pg.query_one(&c, "board.ready", "SELECT 1")
 	defer pg.rows_close(&r)
 	if pg.is_err(qe) {
-		web.text(ctx, web.Status(503), "not ready: query")
+		web.text(ctx, .Service_Unavailable, "not ready: query")
 		return
 	}
 

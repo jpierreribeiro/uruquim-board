@@ -12,10 +12,10 @@ package board
 // entry. If the row fails after the file is on disk, the file is COMPENSATED
 // (deleted) — the documented orphan-cleanup boundary.
 //
-// DOWNLOAD of the bytes is NOT implemented here: the public surface has no
-// buffered binary responder and no way to set Content-Disposition (friction
-// F8-4 / F8-2). Metadata is served as JSON; byte download is a recorded
-// framework finding, not a quiet hack. See planning/phase-8-friction-ledger.md.
+// DOWNLOAD of the bytes IS served (download_attachment): the corrective WPs added
+// web.bytes (a buffered binary responder) and web.set_header (Content-Disposition),
+// so an authenticated, safely-dispositioned file download is now expressible
+// (friction F8-4, resolved). Metadata is still served separately as JSON.
 
 import "core:crypto"
 import "core:encoding/hex"
@@ -252,12 +252,10 @@ list_attachments :: proc(ctx: ^web.Context) {
 	web.ok(ctx, Attachment_List{attachments = list[:]})
 }
 
-// get_attachment returns attachment METADATA as JSON. It does NOT serve the
-// bytes: the public framework surface has no buffered binary responder and no
-// way to set Content-Disposition, so an authenticated, safely-dispositioned file
-// download is not expressible (friction F8-4). Serving the metadata is honest;
-// faking a download over web.stream (chunked, 200-only, backpressured, no
-// filename) would misrepresent what the framework supports.
+// get_attachment returns attachment METADATA as JSON. The actual bytes are
+// served by download_attachment (below): corrective WPs C2 (web.bytes +
+// web.set_header) made an authenticated, safely-dispositioned download
+// expressible (friction F8-4, previously a recorded gap).
 @(private)
 get_attachment :: proc(ctx: ^web.Context) {
 	st := web.state(ctx, App_State)
@@ -313,6 +311,81 @@ get_attachment :: proc(ctx: ^web.Context) {
 	web.ok(ctx, att)
 }
 
+// download_attachment serves the attachment BYTES — the download the framework
+// could not express before the corrective WPs (friction F8-4). It is auth-gated
+// exactly like get_attachment (viewer+ on the task's project), then reads the
+// stored file and returns it with:
+//   - web.bytes(ctx, .OK, content_type, data): the buffered binary responder (C2),
+//     the stored media type on the wire;
+//   - web.set_header(ctx, "Content-Disposition", attachment; filename="..."):
+//     forces a safe download with the original filename (C2 set_header), closing
+//     the inline-render/stored-XSS hazard the metadata-only workaround left open.
+@(private)
+download_attachment :: proc(ctx: ^web.Context) {
+	st := web.state(ctx, App_State)
+
+	att_id, aok := web.path_int(ctx, "id")
+	if !aok {
+		web.bad_request(ctx, "attachment id must be an integer")
+		return
+	}
+
+	c, ae := pg.acquire(&st.db)
+	if pg.is_err(ae) {
+		respond_db_error(ctx, ae)
+		return
+	}
+	defer pg.release(&st.db, &c)
+
+	arena: virtual.Arena
+	ally := handler_arena(&arena)
+	defer virtual.arena_destroy(&arena)
+
+	r, qe := pg.query_one(
+		&c,
+		"attachments.download_by_id",
+		"SELECT a.filename, a.content_type, a.storage_path, t.project_id FROM attachments a " +
+		"JOIN tasks t ON t.id = a.task_id WHERE a.id = $1",
+		{pg.arg_i64(i64(att_id))},
+	)
+	defer pg.rows_close(&r)
+	if pg.is_err(qe) {
+		if qe.kind == .Row_Not_Found {
+			web.not_found(ctx, "attachment")
+			return
+		}
+		respond_db_error(ctx, qe)
+		return
+	}
+	filename, _ := pg.row_text(&r, 0, ally)
+	content_type, _ := pg.row_text(&r, 1, ally)
+	storage_path, _ := pg.row_text(&r, 2, ally)
+	project_id, _ := pg.row_i64(&r, 3)
+
+	id, ok := require_session(ctx, &c)
+	if !ok {
+		return
+	}
+	if !require_role(ctx, &c, project_id, id.account_id, .Viewer) {
+		return
+	}
+
+	data, read_err := os.read_entire_file(storage_path, ally)
+	if read_err != nil {
+		// The row exists but the bytes are gone (an orphaned row) — a 404 for the
+		// content, distinct from a 500.
+		web.not_found(ctx, "attachment content")
+		return
+	}
+
+	// Content-Disposition with the sanitized filename. `filename` was validated at
+	// upload (no CR/LF/quote/traversal), so it is safe to place in the header;
+	// web.set_header additionally rejects any control byte.
+	disposition := strings.concatenate({"attachment; filename=\"", filename, "\""}, ally)
+	web.set_header(ctx, "Content-Disposition", disposition)
+	web.bytes(ctx, .OK, content_type, data)
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -345,7 +418,7 @@ scan_attachment :: proc(r: ^pg.Rows, ally: mem.Allocator) -> Attachment_View {
 respond_too_large :: proc(ctx: ^web.Context) {
 	web.json(
 		ctx,
-		web.Status(413),
+		.Payload_Too_Large,
 		Message{Message_Body{code = "too_large", message = "The attachment exceeds the allowed size"}},
 	)
 }
