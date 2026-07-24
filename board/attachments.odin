@@ -25,8 +25,7 @@ import "core:os"
 import "core:strings"
 import pg "crystals:db/postgres"
 import web "uruquim:web"
-
-FILENAME_MAX :: 255
+import "board:sanitize"
 
 Attachment_View :: struct {
 	id:           i64    `json:"id"`,
@@ -60,7 +59,7 @@ upload_attachment :: proc(ctx: ^web.Context) {
 	// a hostile filename cannot traverse the storage directory. It is still
 	// validated so a bad name is a clear 400, not a silent surprise.
 	filename, has_name := web.query(ctx, "filename")
-	if !has_name || !valid_filename(filename) {
+	if !has_name || !sanitize.valid_filename(filename) {
 		web.bad_request(ctx, "a valid filename query parameter is required")
 		return
 	}
@@ -358,23 +357,4 @@ storage_path :: proc(dir: string) -> (string, bool) {
 		return "", false
 	}
 	return strings.concatenate({dir, "/", string(encoded)}, context.temp_allocator), true
-}
-
-// valid_filename rejects empties, over-long names, path separators and traversal.
-// The stored name is display metadata only, but a clean name avoids surprising
-// downstreams that echo it.
-@(private)
-valid_filename :: proc(name: string) -> bool {
-	if len(name) == 0 || len(name) > FILENAME_MAX {
-		return false
-	}
-	if strings.contains(name, "/") || strings.contains(name, "\\") || strings.contains(name, "..") {
-		return false
-	}
-	for b in transmute([]byte)name {
-		if b < 0x20 {
-			return false // control characters
-		}
-	}
-	return true
 }

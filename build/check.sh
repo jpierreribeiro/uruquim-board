@@ -32,7 +32,7 @@ echo "--- G8-1: no core internal / friend import ---"
 # reaches web/internal, a vendor/ path, or a crystals-internal package is a
 # privileged application (G8-1) and fails here.
 if grep -rnE 'import[^\n]*"(uruquim:web/internal|uruquim:vendor|crystals:[a-z/]*/internal)' \
-     "$ROOT/board" "$ROOT/cmd" "$ROOT/identity" "$ROOT/taskflow" "$ROOT/taskpatch" "$ROOT/tests" 2>/dev/null; then
+     "$ROOT/board" "$ROOT/cmd" "$ROOT/identity" "$ROOT/taskflow" "$ROOT/taskpatch" "$ROOT/sanitize" "$ROOT/tests" 2>/dev/null; then
   fail "an application source imports a framework INTERNAL — proof-by-use forbids it (G8-1)"
 fi
 
@@ -44,6 +44,7 @@ echo "--- typecheck: pure sub-packages (no framework, no libpq) ---"
 env ODIN_ROOT="$ODIN_DIR" "$ODIN" check "$ROOT/identity" -collection:board="$ROOT" -no-entry-point
 env ODIN_ROOT="$ODIN_DIR" "$ODIN" check "$ROOT/taskflow" -collection:board="$ROOT" -no-entry-point
 env ODIN_ROOT="$ODIN_DIR" "$ODIN" check "$ROOT/taskpatch" -collection:board="$ROOT" -collection:crystals="$CRYSTALS_ROOT" -no-entry-point
+env ODIN_ROOT="$ODIN_DIR" "$ODIN" check "$ROOT/sanitize" -collection:board="$ROOT" -no-entry-point
 
 echo "--- typecheck: board package ---"
 env ODIN_ROOT="$ODIN_DIR" "$ODIN" check "$ROOT/board" "${COLL[@]}" -no-entry-point
@@ -67,6 +68,7 @@ echo "--- unit tests: identity + taskflow (pure, no PostgreSQL) ---"
 env ODIN_ROOT="$ODIN_DIR" "$ODIN" test "$ROOT/tests/wp104-identity" -collection:board="$ROOT"
 env ODIN_ROOT="$ODIN_DIR" "$ODIN" test "$ROOT/tests/wp105-taskflow" -collection:board="$ROOT"
 env ODIN_ROOT="$ODIN_DIR" "$ODIN" test "$ROOT/tests/wp106-taskpatch" -collection:board="$ROOT" -collection:crystals="$CRYSTALS_ROOT"
+env ODIN_ROOT="$ODIN_DIR" "$ODIN" test "$ROOT/tests/wp106-sanitize" -collection:board="$ROOT"
 
 echo "--- migrations are immutable, numbered, paired up/down ---"
 for up in "$ROOT"/migrations/*.up.sql; do
