@@ -43,6 +43,10 @@ register :: proc(app: ^web.App) {
 	web.post(app, "/tasks/:id/attachments", upload_attachment)
 	web.get(app, "/tasks/:id/attachments", list_attachments)
 	web.get(app, "/attachments/:id", get_attachment)
+
+	// Live board (WP107): an SSE subscription per project. Mutations publish
+	// "what changed"; the client refetches through the authorized routes.
+	web.get(app, "/projects/:id/events", subscribe_events)
 }
 
 // index is the boring health page: it proves lifecycle and delivery before any

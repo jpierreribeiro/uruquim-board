@@ -192,6 +192,7 @@ upload_attachment :: proc(ctx: ^web.Context) {
 		respond_db_error(ctx, ce)
 		return
 	}
+	notify(st.hub, project_id, "attachment.create", "attachment", att.id)
 	web.created(ctx, att)
 }
 

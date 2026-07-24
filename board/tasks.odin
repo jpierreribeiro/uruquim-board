@@ -158,6 +158,7 @@ create_task :: proc(ctx: ^web.Context) {
 		respond_db_error(ctx, ce)
 		return
 	}
+	notify(st.hub, i64(project_id), "task.create", "task", task.id)
 	web.created(ctx, task)
 }
 
@@ -455,6 +456,7 @@ patch_task :: proc(ctx: ^web.Context) {
 		respond_db_error(ctx, ce)
 		return
 	}
+	notify(st.hub, project_id, "task.update", "task", i64(task_id))
 
 	// Read the fresh row back to return the new version.
 	rc, rae := pg.acquire(&st.db)
@@ -566,6 +568,7 @@ add_comment :: proc(ctx: ^web.Context) {
 		respond_db_error(ctx, ce)
 		return
 	}
+	notify(st.hub, project_id, "comment.create", "comment", comment.id)
 	web.created(ctx, comment)
 }
 

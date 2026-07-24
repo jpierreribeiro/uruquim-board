@@ -14,7 +14,7 @@ recorded framework finding, never a quiet reach-through.
 
 ## Status
 
-**WP106 delivered** (planning/phase-8-plan.md in the core repo).
+**WP107 delivered** (planning/phase-8-plan.md in the core repo).
 
 WP103 — lifecycle and delivery:
 
@@ -95,6 +95,24 @@ WP106 — files, validation, search and pagination:
   F8-2's prediction). Metadata is served as JSON; the finding is recorded rather
   than faked over `web.stream`. **True three-state PATCH** (JSON null vs absent,
   e.g. to unassign) remains a small WP106 follow-up.
+
+WP107 — streamed notifications:
+
+- a per-project **SSE subscription** (`GET /projects/:id/events`, crystals
+  `web/sse`), authorized with the same `require_role` (viewer+) as every other
+  project route and **rechecked on connect/reconnect**;
+- a synchronized **notification hub** (`board/hub.odin`) — heap-held (a
+  `sync.Mutex` must not be copied) — that mutation handlers publish to; each
+  event says WHAT changed (`{"kind","id"}`) and the client refetches through the
+  authorized routes (the framework prescribes no DOM/rendering policy);
+- **reconnect** via `Last-Event-ID`: a returning client is nudged to `resync`
+  (refetch) rather than replay an event log the board does not keep;
+- publish-time pruning of departed subscribers, and every stream closed at
+  shutdown. Idle-subscriber pruning needs a heartbeat thread the framework does
+  not help build — recorded as friction **F8-5** (no client-disconnect signal).
+- **Note:** the SSE wire path (reconnect, two-client delivery, deploy-while-
+  connected) is exercised on the live VPS — `web.stream` returns `ok=false` on
+  the in-memory transport, so it is a deployment test, not a local unit test.
 
 ## Layout
 

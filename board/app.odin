@@ -20,6 +20,11 @@ App_State :: struct {
 	// is the application's own size cap, refused with 413 before persistence.
 	storage_dir:          string,
 	max_attachment_bytes: i64,
+
+	// WP107 — the SSE notification hub. Held by POINTER: it owns a sync.Mutex,
+	// which must never be copied, and App_State is returned by value from
+	// application_init (the pointer copies, the mutex does not).
+	hub: ^Hub,
 }
 
 Config :: struct {
@@ -55,11 +60,14 @@ application_init :: proc(cfg: Config) -> (App_State, bool) {
 			db = pool,
 			storage_dir = cfg.storage_dir,
 			max_attachment_bytes = cfg.max_attachment_bytes,
+			hub = hub_new(),
 		},
 		true
 }
 
-// application_destroy closes the pool, after serving has stopped.
+// application_destroy tears down the hub (closing every open stream) and closes
+// the pool, after serving has stopped. Mirror of application_init.
 application_destroy :: proc(st: ^App_State) {
+	hub_destroy(st.hub)
 	pg.pool_close(&st.db)
 }
