@@ -1,0 +1,29 @@
+# systemd unit for uruquim-board (the Phase-8 supervisor — plan §WP103).
+#
+# Restart=always + a TimeoutStopSec ABOVE the framework's max_drain_time (default
+# 10 s) so the framework drain runs before the supervisor's kill (the Hardening
+# H-4 / operations.md rule).
+#
+# LimitMEMLOCK=infinity is REQUIRED, not optional. Uruquim's io_uring event loop
+# pins memory against RLIMIT_MEMLOCK; on a host with a small default (the test
+# VPS has 8 MiB) the ring setup fails, and — thanks to Hardening patch 30 —
+# web.serve then FAILS GRACEFULLY (a clean exit) instead of crashing. The
+# operational remedy the patch-29 diagnostic names is exactly this line. Proven
+# in deployment #1: without it the service exits cleanly on every start; with it,
+# it serves. See DEPLOYMENTS.md.
+
+[Unit]
+Description=uruquim-board (Phase-8 proof-by-use)
+After=network.target docker.service
+
+[Service]
+Type=simple
+EnvironmentFile=/opt/uruquim-verify/board.env
+ExecStart=/opt/uruquim-verify/board-server
+Restart=always
+RestartSec=2
+TimeoutStopSec=30
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target
