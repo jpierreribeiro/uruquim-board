@@ -62,6 +62,11 @@ main :: proc() {
 			ssl_mode             = ssl,
 			allow_plaintext      = env("BOARD_ALLOW_PLAINTEXT") == "1",
 			statement_timeout_ms = 30_000,
+			// Bound an established connection under a silent network partition, so a
+			// readiness probe fails promptly instead of hanging until the OS default
+			// TCP timeout (WP110 network-interruption drill; needs the C5-branch
+			// tcp_user_timeout support in db/postgres).
+			tcp_user_timeout_ms  = 3_000,
 		},
 		// Pool capacity stays below the framework's handler-lane capacity so a
 		// saturated pool fails fast for database work while health and shutdown
