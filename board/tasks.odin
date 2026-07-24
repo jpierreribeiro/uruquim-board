@@ -13,7 +13,6 @@ package board
 //   - nullable columns (body, assignee_id) distinct from zero/empty;
 //   - query NAMES in diagnostics, bound VALUES never logged.
 
-import "core:encoding/json"
 import "core:fmt"
 import "core:mem"
 import "core:mem/virtual"
@@ -23,6 +22,7 @@ import vh "crystals:web/validate"
 import web "uruquim:web"
 import "board:identity"
 import tf "board:taskflow"
+import tp "board:taskpatch"
 
 TASK_TITLE_MAX :: 200
 TASK_BODY_MAX :: 20_000
@@ -38,18 +38,9 @@ Create_Task :: struct {
 	assignee_id: Maybe(i64)    `json:"assignee_id"`,
 }
 
-// Task_Patch is the edit intent under TRUE three-state semantics: each field is
-// Absent (keep), Null (clear — for nullable columns) or Set (new value).
-// `version` is REQUIRED (the optimistic token). Absent vs null are distinguished
-// by parsing the raw JSON object (validate.Patch), which `web.body`'s
-// struct-decode into Maybe cannot do — so this handler parses directly.
-Task_Patch :: struct {
-	version:     i64,
-	title:       validate.Patch(string), // null invalid (title is NOT NULL)
-	body:        validate.Patch(string), // null clears the body
-	status:      validate.Patch(string), // null invalid
-	assignee_id: validate.Patch(i64),    // null unassigns
-}
+// The three-state PATCH intent (Task_Patch) and its parser live in the pure
+// `board:taskpatch` sub-package, unit-tested without a database. This handler
+// consumes taskpatch.parse's result.
 
 Task_View :: struct {
 	id:          i64           `json:"id"`,
@@ -330,7 +321,7 @@ patch_task :: proc(ctx: ^web.Context) {
 		return
 	}
 
-	input, parse_ok := parse_task_patch(ctx.request.body)
+	input, parse_ok := tp.parse(ctx.request.body)
 	if !parse_ok {
 		web.bad_request(ctx, "invalid patch body (unknown field, wrong type, or missing version)")
 		return
@@ -418,13 +409,13 @@ patch_task :: proc(ctx: ^web.Context) {
 		title_param = pg.arg_text(v)
 	}
 
-	body_mode := patch_mode(input.body)
+	body_mode := tp.patch_mode(input.body)
 	body_param := pg.arg_null()
 	if v, has := validate.patch_get(input.body); has {
 		body_param = pg.arg_text(v)
 	}
 
-	assignee_mode := patch_mode(input.assignee_id)
+	assignee_mode := tp.patch_mode(input.assignee_id)
 	assignee_param := pg.arg_null()
 	if v, has := validate.patch_get(input.assignee_id); has {
 		assignee_param = pg.arg_i64(v)
@@ -771,99 +762,4 @@ status_detail :: proc(from: string, to: string) -> string {
 	// from/to are always status_string outputs (a closed set), so this is safe to
 	// interpolate — no quoting hazard, no injection.
 	return fmt.aprintf(`{{"from":"%s","to":"%s"}}`, from, to, allocator = context.temp_allocator)
-}
-
-// parse_task_patch reads the three-state edit intent from the raw JSON body.
-// Absent, JSON null and a value map to Absent, Null and Set per field; version is
-// required. An unknown key, a wrong-typed value, a non-object body or a missing
-// version is ok=false — the PATCH surface is strict, exactly as web.body's
-// struct decode is for the create path. Parsed in the temp allocator.
-@(private)
-parse_task_patch :: proc(body: []u8) -> (out: Task_Patch, ok: bool) {
-	if len(body) == 0 {
-		return {}, false
-	}
-	value, perr := json.parse(body, allocator = context.temp_allocator)
-	if perr != .None {
-		return {}, false
-	}
-	obj, is_obj := value.(json.Object)
-	if !is_obj {
-		return {}, false
-	}
-
-	version_seen := false
-	for key, v in obj {
-		switch key {
-		case "version":
-			#partial switch n in v {
-			case json.Integer:
-				out.version = i64(n)
-			case json.Float:
-				out.version = i64(n)
-			case:
-				return {}, false
-			}
-			version_seen = true
-		case "title":
-			p, e := read_string_patch(v)
-			if e {return {}, false}
-			out.title = p
-		case "body":
-			p, e := read_string_patch(v)
-			if e {return {}, false}
-			out.body = p
-		case "status":
-			p, e := read_string_patch(v)
-			if e {return {}, false}
-			out.status = p
-		case "assignee_id":
-			p, e := read_int_patch(v)
-			if e {return {}, false}
-			out.assignee_id = p
-		case:
-			return {}, false // unknown field
-		}
-	}
-	if !version_seen {
-		return {}, false
-	}
-	return out, true
-}
-
-@(private)
-read_string_patch :: proc(v: json.Value) -> (validate.Patch(string), bool) {
-	#partial switch t in v {
-	case json.Null:
-		return validate.patch_null(string), false
-	case json.String:
-		return validate.patch_set(string(t)), false
-	}
-	return {}, true // a value that is neither null nor a string is invalid
-}
-
-@(private)
-read_int_patch :: proc(v: json.Value) -> (validate.Patch(i64), bool) {
-	#partial switch t in v {
-	case json.Null:
-		return validate.patch_null(i64), false
-	case json.Integer:
-		return validate.patch_set(i64(t)), false
-	case json.Float:
-		return validate.patch_set(i64(t)), false
-	}
-	return {}, true
-}
-
-// patch_mode encodes a three-state field for the SQL CASE: "set", "null" or the
-// default "keep". Generic over the patch payload type.
-@(private)
-patch_mode :: proc(p: validate.Patch($T)) -> string {
-	if validate.patch_is_set(p) {
-		return "set"
-	}
-	if validate.patch_is_null(p) {
-		return "null"
-	}
-	return "keep"
 }
