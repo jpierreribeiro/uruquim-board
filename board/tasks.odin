@@ -205,7 +205,17 @@ list_tasks :: proc(ctx: ^web.Context) {
 		status_filter = pg.arg_text(s)
 	}
 	assignee_filter := pg.arg_null()
-	if a, has := web.query_int(ctx, "assignee"); has {
+	// `assignee` is an OPTIONAL typed filter. web.query_int cannot serve it: it is
+	// the REQUIRED-parameter reader and commits a 400 when the param is absent.
+	// web.query_int_or does not commit on absence, but its ok=true for both
+	// absent (default) and present-valid, so it cannot tell "filter" from "no
+	// filter". The optional-typed read is therefore two calls: web.query for
+	// presence, then query_int_or for a present-but-malformed 400 (friction F8-6).
+	if _, has := web.query(ctx, "assignee"); has {
+		a, aok := web.query_int_or(ctx, "assignee", 0)
+		if !aok {
+			return // present but malformed: query_int_or committed the 400
+		}
 		assignee_filter = pg.arg_i64(i64(a))
 	}
 

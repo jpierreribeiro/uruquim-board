@@ -280,10 +280,14 @@ get_attachment :: proc(ctx: ^web.Context) {
 	defer virtual.arena_destroy(&arena)
 
 	// Resolve the attachment and its project in one join, for the auth check.
+	// Columns MUST be table-qualified: `id` and `created_at` exist on BOTH
+	// attachments and tasks, so the unqualified ATTACHMENT_COLUMNS list is
+	// ambiguous in a join and PostgreSQL rejects it (found live: this was a 500).
 	r, qe := pg.query_one(
 		&c,
 		"attachments.by_id",
-		"SELECT " + ATTACHMENT_COLUMNS + ", t.project_id FROM attachments a " +
+		"SELECT a.id, a.task_id, a.uploader_id, a.filename, a.content_type, a.byte_size, " +
+		"a.spooled, a.created_at::text, t.project_id FROM attachments a " +
 		"JOIN tasks t ON t.id = a.task_id WHERE a.id = $1",
 		{pg.arg_i64(i64(att_id))},
 	)
