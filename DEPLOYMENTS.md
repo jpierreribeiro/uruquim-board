@@ -204,3 +204,23 @@ misconfiguration — deferred so they do not perturb the running soak.
     cell stays INFORMATIONAL on this host. **Full validation is a Gate-2 item on
     the multi-host scale campaign** (a remote DB, where the partition and the
     TCP-layer bound are real).
+
+---
+
+## Intermediate SSE scale probe (live, Env A capacity point)
+
+- **Date:** 2026-07-24. `ops/sse-scale.sh` against the live board.
+- Graduated concurrent SSE subscribers on the 2-CPU/1.6 GiB host:
+
+  | Subs | Admitted | health | ready | RSS |
+  |---|---|---|---|---|
+  | 50 | 50/50 | 200 | 200 | 27.9 MB |
+  | 100 | 100/100 | 200 | 200 | 30.2 MB |
+  | 200 | 200/200 | 200 | 200 | 39.8 MB |
+  | 300 | 297/300 | 200 | 200 | 53.4 MB |
+
+- **Capacity knee ≈ 300 concurrent streams** on this small host, reached
+  **gracefully** (health/ready stayed 200; 100% recovery after each level, no
+  crash). **RSS tracks connections linearly** (28→53 MB) — a live confirmation of
+  the C-04 per-connection retention rule. The owed 3,000-socket round is an Env B
+  (bigger VPS) item; this is the first point on the capacity curve.
