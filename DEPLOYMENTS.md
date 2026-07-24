@@ -76,3 +76,36 @@ outcome, and anything learned. Synthetic data only.
 3 of the pre-registered ≥10 deployments recorded (#1 WP103, #2 WP104–109, #3
 bugfix). Remaining deploys, the ≥4h soak, WP110 drills, and WP111's ≥5th
 migration (backfill + expand/contract) continue on this live server.
+
+---
+
+## #4 — WP111 evolution + WP110 drills (live)
+
+- **Date:** 2026-07-24. Board `master` `2997a7a`.
+- **WP111 — 5th+ migrations, both required shapes, deployed against seeded volume:**
+  - **0005 backfill** (`tasks.comment_count`): applied; backfill verified —
+    `sum(comment_count) = 2400` across the 600 seed tasks (matches the 2400
+    comments). Maintained transactionally in `add_comment` thereafter.
+  - **0006/0007 expand/contract** (`tasks.body` → `tasks.description`): the
+    textbook rename, deployed in the safe order — applied **0005+0006** (add
+    `description`, backfill from `body`, keep `body`) with **0007 held back**;
+    deployed the `description`-using binary (smoke **22/22** with `body` still
+    present); then applied **0007** (drop `body`). Post-contract the `tasks`
+    table has `description` and no `body`; smoke **22/22**. `migrate status`
+    shows all **7 migrations Applied**, checksummed, non-dirty.
+- **WP110 — failure/recovery drills (`ops/drills.sh`), all GREEN live:**
+  | Drill | Expected | Observed |
+  |---|---|---|
+  | SIGKILL the board | supervisor restarts, committed data durable | new PID served within seconds; the pre-kill task survived |
+  | PostgreSQL restart | liveness stays up, readiness bounded, pool recovers | `/health/live` stayed 200; `/ready` flipped to **503** (never hung) then returned to **200** as the pool reconnected; committed task durable |
+  | graceful `systemctl restart` | clean stop/start | serves again |
+
+### Threshold progress after #4
+
+- **Deployments:** 4 of ≥10 (#1 WP103, #2 WP104–109, #3 bugfix, #4 WP111).
+- **Migrations:** **7 of ≥5 — MET**, incl. ≥1 backfill (0005) and an
+  expand/contract (0006/0007). G8-2 evolvable-data evidence satisfied.
+- **WP110 drills:** the core cells (process kill, PG restart, graceful restart)
+  recorded green. Remaining drills (network interruption, upload interruption,
+  migration lock contention) and the **≥4h soak** continue on this server.
+- **Still owner-gated:** WP112 (human/AI usability study) and WP113 (verdict).
