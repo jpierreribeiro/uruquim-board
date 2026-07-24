@@ -224,3 +224,15 @@ misconfiguration — deferred so they do not perturb the running soak.
   crash). **RSS tracks connections linearly** (28→53 MB) — a live confirmation of
   the C-04 per-connection retention rule. The owed 3,000-socket round is an Env B
   (bigger VPS) item; this is the first point on the capacity curve.
+
+---
+
+## Session-expiry drill (live — closes the soak's uncrossed boundary)
+
+- **Date:** 2026-07-24. `ops/session-expiry-drill.sh`.
+- The 4h soak could not cross the 24h-TTL session-expiry boundary; this exercises
+  it directly and **GREEN 4/4**: a fresh session → 200; a session aged past `now()`
+  in the DB → **401** (expiry enforced as `expires_at > now()` in SQL, DB clock
+  authoritative); re-login after expiry → 200 (churn across the boundary); explicit
+  revocation (logout) → 401. The session lifecycle is correct across expiry and
+  revocation without needing a real 24h wait or a rebuilt short-TTL binary.
