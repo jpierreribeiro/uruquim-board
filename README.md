@@ -14,7 +14,7 @@ recorded framework finding, never a quiet reach-through.
 
 ## Status
 
-**WP105 delivered** (planning/phase-8-plan.md in the core repo).
+**WP106 delivered** (planning/phase-8-plan.md in the core repo).
 
 WP103 — lifecycle and delivery:
 
@@ -71,7 +71,30 @@ WP105 — relational workflows and transactions:
 - integrity violations mapped to domain errors (foreign-key / check → 400);
 - nullable columns (`body`, `assignee_id`) kept distinct from empty/zero;
 - migration `0003_tasks` (tasks + comments + audit_log, status CHECK), a deploy
-  step. Full cursor pagination and three-state PATCH are WP106.
+  step.
+
+WP106 — files, validation, search and pagination:
+
+- **attachment upload** as a raw-body POST — a body within `max_body` (4 MiB) is
+  buffered (`ctx.request.body`), a body over it takes the **Phase-7 spool path**
+  (`web.enable_upload` / `web.upload` / `web.upload_persist`); the file lands at a
+  **generated** on-disk name (never the client's);
+- an application **size cap refused with 413** before persistence;
+- the **file/database boundary made explicit** — no atomic FS+DB transaction: the
+  file is persisted, then the row is inserted in a transaction with its audit
+  entry, and on any DB failure the file is **compensated** (deleted); the orphan
+  a crash between the two would leave is a documented cleanup boundary;
+- **keyset (cursor) pagination** on the task list (`?after=&limit=`, stable under
+  concurrent inserts) with **dynamic filters** (`?status=&assignee=`) built from
+  bound params, never interpolation; strict JSON decode already rejects unknown
+  and nested-field errors;
+- migration `0004_attachments`, a deploy step;
+- **download of the bytes is NOT served** — the public surface has no buffered
+  binary responder and no way to set `Content-Disposition`, so an authenticated,
+  safely-dispositioned download is not expressible (friction **F8-4**, confirming
+  F8-2's prediction). Metadata is served as JSON; the finding is recorded rather
+  than faked over `web.stream`. **True three-state PATCH** (JSON null vs absent,
+  e.g. to unassign) remains a small WP106 follow-up.
 
 ## Layout
 

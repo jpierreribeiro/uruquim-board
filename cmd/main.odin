@@ -14,6 +14,9 @@ package main
 //   BOARD_DB_NAME
 //   BOARD_DB_SSLMODE        (verify-full|verify-ca|require|disable; default verify-full)
 //   BOARD_ALLOW_PLAINTEXT   (=1 to allow a plaintext DB connection — dev only)
+//   BOARD_STORAGE_DIR       (attachment storage; default /var/lib/uruquim-board/storage)
+//   BOARD_SPOOL_DIR         (large-upload spool; default <storage>/spool)
+//   BOARD_MAX_ATTACHMENT    (per-attachment byte cap; default 52428800 = 50 MiB)
 
 import "core:fmt"
 import "core:os"
@@ -41,6 +44,13 @@ main :: proc() {
 		ssl = .Disable
 	}
 
+	storage_dir := env("BOARD_STORAGE_DIR", "/var/lib/uruquim-board/storage")
+	spool_dir := env("BOARD_SPOOL_DIR", "")
+	if spool_dir == "" {
+		spool_dir = fmt.tprintf("%s/spool", storage_dir)
+	}
+	max_attachment, _ := strconv.parse_i64(env("BOARD_MAX_ATTACHMENT", "52428800"))
+
 	cfg := board.Config {
 		database = pg.Config {
 			host                 = env("BOARD_DB_HOST", "127.0.0.1"),
@@ -56,17 +66,37 @@ main :: proc() {
 		// saturated pool fails fast for database work while health and shutdown
 		// stay live (the WP105 rule; C-05 measured the lane binds first).
 		pool = pg.Pool_Config{min_conns = 1, max_conns = 8, acquire_timeout_ms = 2_000},
+		storage_dir = storage_dir,
+		spool_dir = spool_dir,
+		max_attachment_bytes = max_attachment,
 	}
 
 	st, ok := board.application_init(cfg)
 	if !ok {
-		fmt.eprintln("board: could not open the database pool; check the configuration")
+		fmt.eprintln("board: could not open the database pool or create the storage directory")
 		os.exit(1)
 	}
 	defer board.application_destroy(&st)
 
 	app := web.app_with_state(&st)
 	defer web.destroy(&app)
+
+	// WP106 — spooled large-body ingestion. A request body over max_body (4 MiB
+	// default) is spooled to disk under spool_dir instead of refused, so an
+	// attachment larger than the buffered limit takes the Phase-7 spool path
+	// (web.upload/upload_persist in board/attachments.odin). Must be set before
+	// serving (fail-closed ordering). The spool directory is created by the
+	// framework's ingest substrate under the configured dir.
+	web.enable_upload(
+		&app,
+		web.Upload_Config {
+			dir = spool_dir,
+			per_upload_quota = max_attachment,
+			process_quota = max_attachment * 8,
+			max_concurrent = 4,
+			memory_prefix_max = 64 * 1024,
+		},
+	)
 
 	// Liveness from the health Crystal, mounted under /health → /health/live.
 	liveness := health.routes()

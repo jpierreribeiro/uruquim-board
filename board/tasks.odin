@@ -62,7 +62,8 @@ Task_View :: struct {
 }
 
 Task_List :: struct {
-	tasks: []Task_View `json:"tasks"`,
+	tasks:      []Task_View `json:"tasks"`,
+	next_after: i64         `json:"next_after"`, // 0 when there is no next page
 }
 
 Create_Comment :: struct {
@@ -189,11 +190,46 @@ list_tasks :: proc(ctx: ^web.Context) {
 	ally := handler_arena(&arena)
 	defer virtual.arena_destroy(&arena)
 
+	// Keyset (cursor) pagination: `after` is the last id the client saw; the page
+	// is the next `limit` rows with a greater id. Stable under concurrent inserts
+	// — a new task with a higher id never shifts an earlier page (unlike OFFSET).
+	after, _ := web.query_int_or(ctx, "after", 0)
+	limit, _ := web.query_int_or(ctx, "limit", TASK_LIST_LIMIT)
+	if limit <= 0 || limit > TASK_LIST_LIMIT {
+		limit = TASK_LIST_LIMIT
+	}
+
+	// Dynamic filters, built with BOUND params (never interpolation). Optional
+	// status and assignee narrow the set; absent filters match everything via a
+	// NULL-guarded predicate, so one prepared shape serves every combination.
+	status_filter := pg.arg_null()
+	if s, has := web.query(ctx, "status"); has && s != "" {
+		if _, sok := tf.status_parse(s); !sok {
+			web.bad_request(ctx, "unknown status filter")
+			return
+		}
+		status_filter = pg.arg_text(s)
+	}
+	assignee_filter := pg.arg_null()
+	if a, has := web.query_int(ctx, "assignee"); has {
+		assignee_filter = pg.arg_i64(i64(a))
+	}
+
 	rows, qe := pg.query(
 		&c,
 		"tasks.list",
-		"SELECT " + TASK_COLUMNS + " FROM tasks WHERE project_id = $1 ORDER BY id LIMIT $2",
-		{pg.arg_i64(i64(project_id)), pg.arg_i64(TASK_LIST_LIMIT)},
+		"SELECT " + TASK_COLUMNS + " FROM tasks " +
+		"WHERE project_id = $1 AND id > $2 " +
+		"AND ($3::text IS NULL OR status = $3) " +
+		"AND ($4::bigint IS NULL OR assignee_id = $4) " +
+		"ORDER BY id LIMIT $5",
+		{
+			pg.arg_i64(i64(project_id)),
+			pg.arg_i64(i64(after)),
+			status_filter,
+			assignee_filter,
+			pg.arg_i64(i64(limit)),
+		},
 	)
 	defer pg.rows_close(&rows)
 	if pg.is_err(qe) {
@@ -205,7 +241,14 @@ list_tasks :: proc(ctx: ^web.Context) {
 	for pg.rows_next(&rows) {
 		append(&list, scan_task(&rows, ally))
 	}
-	web.ok(ctx, Task_List{tasks = list[:]})
+
+	// next_after is the last id of a FULL page, else 0 (no more rows). A short
+	// page means the client has reached the end.
+	next_after: i64 = 0
+	if len(list) == limit && len(list) > 0 {
+		next_after = list[len(list) - 1].id
+	}
+	web.ok(ctx, Task_List{tasks = list[:], next_after = next_after})
 }
 
 @(private)

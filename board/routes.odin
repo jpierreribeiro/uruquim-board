@@ -36,6 +36,13 @@ register :: proc(app: ^web.App) {
 	web.patch(app, "/tasks/:id", patch_task)
 	web.post(app, "/tasks/:id/comments", add_comment)
 	web.get(app, "/tasks/:id/comments", list_comments)
+
+	// Attachments (WP106): buffered + spool upload, metadata list/get. Byte
+	// download is not expressible through the public surface (friction F8-4) —
+	// only metadata is served. Task listing gains keyset pagination + filters.
+	web.post(app, "/tasks/:id/attachments", upload_attachment)
+	web.get(app, "/tasks/:id/attachments", list_attachments)
+	web.get(app, "/attachments/:id", get_attachment)
 }
 
 // index is the boring health page: it proves lifecycle and delivery before any
