@@ -14,7 +14,7 @@ recorded framework finding, never a quiet reach-through.
 
 ## Status
 
-**WP104 delivered** (planning/phase-8-plan.md in the core repo).
+**WP105 delivered** (planning/phase-8-plan.md in the core repo).
 
 WP103 — lifecycle and delivery:
 
@@ -52,6 +52,26 @@ WP104 — identity, sessions and authorization:
   `identity/` sub-package that depends only on Odin core — **unit-tested in the
   build gate with no PostgreSQL** (`tests/wp104-identity`). The DB-touching
   handlers are exercised against a live PostgreSQL on the VPS.
+
+WP105 — relational workflows and transactions:
+
+- **tasks, comments and assignment** over explicit named SQL (bound params, never
+  interpolation); routes `POST/GET /projects/:id/tasks`, `GET/PATCH /tasks/:id`,
+  `POST/GET /tasks/:id/comments`;
+- a **task status machine** (`open → in_progress/blocked/closed`, closed is
+  terminal except reopen) in the pure `taskflow/` sub-package, unit-tested
+  (`tests/wp105-taskflow`) and enforced by the PATCH handler before any write;
+- **optimistic concurrency**: PATCH matches on the version the client read
+  (`UPDATE … WHERE version = $read`); a concurrent edit that already bumped it
+  affects zero rows → **409**, never a silent last-write (corroborates F8-1: 409
+  is another `web.Status(409)` cast);
+- a **transaction spanning several writes** on every mutation — the change and its
+  **persistent `audit_log` row commit together**, so the history cannot drift from
+  the data;
+- integrity violations mapped to domain errors (foreign-key / check → 400);
+- nullable columns (`body`, `assignee_id`) kept distinct from empty/zero;
+- migration `0003_tasks` (tasks + comments + audit_log, status CHECK), a deploy
+  step. Full cursor pagination and three-state PATCH are WP106.
 
 ## Layout
 

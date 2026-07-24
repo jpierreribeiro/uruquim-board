@@ -64,8 +64,42 @@ handler_arena :: proc(arena: ^virtual.Arena) -> mem.Allocator {
 // only — never an email, token, password or request body — upholding the
 // redaction budget the framework's own observability keeps (E8-6, WP102 §5).
 // A failed lookup logs actor=0, so an unauthenticated attempt is still recorded
-// without inventing an identity.
+// without inventing an identity. Used for identity events with no project scope
+// (login/logout); project-scoped mutations use the persistent audit_log via
+// audit_write below.
 @(private)
 audit :: proc(action: string, actor_id: i64) {
 	fmt.eprintfln("audit action=%s actor=%d", action, actor_id)
+}
+
+// audit_write appends a PERSISTENT audit row inside the caller's transaction, so
+// the history cannot drift from the data it describes: either the mutation and
+// its audit row both commit, or neither does. `detail` is a JSON document built
+// by the caller from a CLOSED vocabulary (status names, ids) — never a request
+// body or user free-text — so it carries no injection and no sensitive value.
+@(private)
+audit_write :: proc(
+	tx: ^pg.Tx,
+	project_id: i64,
+	actor_id: i64,
+	action: string,
+	target_kind: string,
+	target_id: i64,
+	detail := "{}",
+) -> pg.Error {
+	_, e := pg.tx_execute(
+		tx,
+		"audit_log.insert",
+		"INSERT INTO audit_log (project_id, actor_id, action, target_kind, target_id, detail) " +
+		"VALUES ($1, $2, $3, $4, $5, $6::jsonb)",
+		{
+			pg.arg_i64(project_id),
+			pg.arg_i64(actor_id),
+			pg.arg_text(action),
+			pg.arg_text(target_kind),
+			pg.arg_i64(target_id),
+			pg.arg_text(detail),
+		},
+	)
+	return e
 }

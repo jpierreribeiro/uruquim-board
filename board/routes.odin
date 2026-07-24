@@ -23,11 +23,19 @@ register :: proc(app: ^web.App) {
 	web.post(app, "/logout", logout)
 	web.get(app, "/me", me)
 
-	// Projects and per-project role membership (WP104 authorization). Full task
-	// and comment workflows build on these in WP105.
+	// Projects and per-project role membership (WP104 authorization).
 	web.post(app, "/projects", create_project)
 	web.get(app, "/projects/:id", get_project)
 	web.post(app, "/projects/:id/members", invite_member)
+
+	// Relational workflows (WP105): tasks, comments, the status machine,
+	// optimistic conflict detection (version -> 409) and a persistent audit log.
+	web.post(app, "/projects/:id/tasks", create_task)
+	web.get(app, "/projects/:id/tasks", list_tasks)
+	web.get(app, "/tasks/:id", get_task)
+	web.patch(app, "/tasks/:id", patch_task)
+	web.post(app, "/tasks/:id/comments", add_comment)
+	web.get(app, "/tasks/:id/comments", list_comments)
 }
 
 // index is the boring health page: it proves lifecycle and delivery before any
