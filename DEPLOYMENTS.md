@@ -236,3 +236,21 @@ misconfiguration — deferred so they do not perturb the running soak.
   authoritative); re-login after expiry → 200 (churn across the boundary); explicit
   revocation (logout) → 401. The session lifecycle is correct across expiry and
   revocation without needing a real 24h wait or a rebuilt short-TTL binary.
+
+---
+
+## WP110 proxy-misconfiguration drill (live — the C-06 contract, last WP110 cell)
+
+- **Date:** 2026-07-24. `ops/proxy-buffering-drill.sh` (ephemeral nginx via
+  `--network host`; never the box's own Caddy).
+- **GREEN** and conclusive:
+  - direct (no proxy): SSE head **200**, ttfb ~0.001s;
+  - **`proxy_buffering on`** (the misconfiguration): **timeout** — the proxy
+    withholds the SSE stream, the client gets nothing within 5s;
+  - **`proxy_buffering off`** (the C-06 contract): SSE head **200**, ttfb ~0.002s.
+- Demonstrates live WHY a deployment MUST set `proxy_buffering off` for SSE: a
+  buffering proxy holds the stream indefinitely; an unbuffered one forwards it
+  immediately. **This is the last deferred WP110 cell — the WP110 drill set is now
+  complete** (process kill, PG restart, graceful restart, malformed, checksum
+  tamper, upload interruption, network interruption [mitigated; remote-DB
+  validation → Gate 2], proxy misconfiguration).
