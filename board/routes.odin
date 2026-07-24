@@ -47,6 +47,11 @@ register :: proc(app: ^web.App) {
 	// Live board (WP107): an SSE subscription per project. Mutations publish
 	// "what changed"; the client refetches through the authorized routes.
 	web.get(app, "/projects/:id/events", subscribe_events)
+
+	// Observability (WP109): the human admin's JSON stats view (server counters +
+	// pool gauges), session-gated. The Prometheus /metrics surface is mounted
+	// from the metrics Crystal in cmd/main.odin.
+	web.get(app, "/admin/stats", admin_stats)
 }
 
 // index is the boring health page: it proves lifecycle and delivery before any

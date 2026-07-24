@@ -24,6 +24,7 @@ import "core:strconv"
 import board "board:board"
 import pg "crystals:db/postgres"
 import health "crystals:web/health"
+import metrics "crystals:web/metrics"
 import web "uruquim:web"
 
 env :: proc(key: string, def := "") -> string {
@@ -102,6 +103,18 @@ main :: proc() {
 	liveness := health.routes()
 	web.mount(&app, "/health", &liveness)
 	web.destroy(&liveness)
+
+	// Observability (WP109). Point the framework-error observer at the metrics
+	// Crystal (before serve) and mount its Prometheus exposition. The Crystal's
+	// route is already `/metrics`, and web.mount forbids a root ("/") prefix, so
+	// the scrape endpoint is `/obs/metrics` (prefix + the Crystal's own path),
+	// exactly as the Crystal's own test mounts it. It carries only closed-enum
+	// error kinds and refused-connection totals — no request bytes — so it is safe
+	// to expose; a deployment still restricts it to an internal hop at the proxy.
+	metrics.install(&app)
+	metrics_routes := metrics.routes()
+	web.mount(&app, "/obs", &metrics_routes)
+	web.destroy(&metrics_routes)
 
 	board.register(&app)
 

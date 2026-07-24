@@ -14,7 +14,9 @@ recorded framework finding, never a quiet reach-through.
 
 ## Status
 
-**WP107 delivered** (planning/phase-8-plan.md in the core repo).
+**WP104–107 + WP109 observability wiring delivered** (planning/phase-8-plan.md in
+the core repo). WP108/110/111/112/113 are predominantly operational (live VPS +
+owner) — see the core memory `phase8-underway`.
 
 WP103 — lifecycle and delivery:
 
@@ -117,6 +119,19 @@ WP107 — streamed notifications:
 - **Note:** the SSE wire path (reconnect, two-client delivery, deploy-while-
   connected) is exercised on the live VPS — `web.stream` returns `ok=false` on
   the in-memory transport, so it is a deployment test, not a local unit test.
+
+WP109 — observability (wiring; live scraping is a VPS/deploy exercise):
+
+- **Prometheus exposition** from the crystals `metrics` Crystal, mounted at
+  `/obs/metrics` (framework-error counts by closed-enum kind + refused
+  connections; redaction by construction — no request bytes). Unauthenticated by
+  convention, proxy-restricted to an internal hop in a deployment;
+- an authenticated **admin JSON view** `GET /admin/stats` combining the
+  framework's `web.stats()` server counters (responses sent, send/write-deadline
+  aborts, stream refusals) with the database `pg.pool_stats()` gauges (open /
+  idle / in-use / waiters) — the pool-saturation and stream-backpressure signals
+  an operator needs, all process-wide totals or gauges with no per-request
+  cardinality.
 
 ## Layout
 
