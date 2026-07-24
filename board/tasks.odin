@@ -29,8 +29,12 @@ TASK_BODY_MAX :: 20_000
 COMMENT_BODY_MAX :: 20_000
 TASK_LIST_LIMIT :: 100
 
+// The task's text column is `description` (renamed from `body` via the
+// expand/contract migrations 0006/0007). The JSON API field stays `body` for a
+// stable external contract — the rename is physical only, scanned back into the
+// Task_View.body field at the same position.
 TASK_COLUMNS ::
-	"id, project_id, title, body, status, assignee_id, created_at::text, updated_at::text, version"
+	"id, project_id, title, description, status, assignee_id, created_at::text, updated_at::text, version, comment_count"
 
 Create_Task :: struct {
 	title:       string        `json:"title"`,
@@ -49,9 +53,10 @@ Task_View :: struct {
 	body:        Maybe(string) `json:"body"`,       // JSON null when the column is NULL
 	status:      string        `json:"status"`,
 	assignee_id: Maybe(i64)    `json:"assignee_id"`, // JSON null when unassigned
-	created_at:  string        `json:"created_at"`,
-	updated_at:  string        `json:"updated_at"`,
-	version:     i64           `json:"version"`,
+	created_at:    string        `json:"created_at"`,
+	updated_at:    string        `json:"updated_at"`,
+	version:       i64           `json:"version"`,
+	comment_count: i64           `json:"comment_count"`,
 }
 
 Task_List :: struct {
@@ -132,7 +137,7 @@ create_task :: proc(ctx: ^web.Context) {
 	r, qe := pg.tx_query_one(
 		&tx,
 		"tasks.insert",
-		"INSERT INTO tasks (project_id, title, body, assignee_id) VALUES ($1, $2, $3, $4) RETURNING " +
+		"INSERT INTO tasks (project_id, title, description, assignee_id) VALUES ($1, $2, $3, $4) RETURNING " +
 		TASK_COLUMNS,
 		{pg.arg_i64(i64(project_id)), pg.arg_text(input.title), body_param, assignee_param},
 	)
@@ -436,7 +441,7 @@ patch_task :: proc(ctx: ^web.Context) {
 		"tasks.update",
 		"UPDATE tasks SET " +
 		"title = CASE WHEN $1 THEN $2 ELSE title END, " +
-		"body = CASE $3 WHEN 'set' THEN $4 WHEN 'null' THEN NULL ELSE body END, " +
+		"description = CASE $3 WHEN 'set' THEN $4 WHEN 'null' THEN NULL ELSE description END, " +
 		"status = $5, " +
 		"assignee_id = CASE $6 WHEN 'set' THEN $7 WHEN 'null' THEN NULL ELSE assignee_id END, " +
 		"updated_at = now(), version = version + 1 " +
@@ -576,6 +581,18 @@ add_comment :: proc(ctx: ^web.Context) {
 		return
 	}
 	comment := scan_comment(&r, ally)
+
+	// Maintain the denormalized counter (migration 0005) in the SAME transaction,
+	// so the count can never drift from the comment rows.
+	if _, ce := pg.tx_execute(
+		&tx,
+		"tasks.bump_comment_count",
+		"UPDATE tasks SET comment_count = comment_count + 1 WHERE id = $1",
+		{pg.arg_i64(i64(task_id))},
+	); pg.is_err(ce) {
+		respond_db_error(ctx, ce)
+		return
+	}
 
 	if wae := audit_write(&tx, project_id, actor.account_id, "comment.create", "comment", comment.id);
 	   pg.is_err(wae) {
@@ -718,6 +735,7 @@ scan_task :: proc(r: ^pg.Rows, ally: mem.Allocator) -> Task_View {
 	created, _ := pg.row_text(r, 6, ally)
 	updated, _ := pg.row_text(r, 7, ally)
 	version, _ := pg.row_i64(r, 8)
+	comment_count, _ := pg.row_i64(r, 9)
 	return Task_View {
 		id = id,
 		project_id = project_id,
@@ -728,6 +746,7 @@ scan_task :: proc(r: ^pg.Rows, ally: mem.Allocator) -> Task_View {
 		created_at = created,
 		updated_at = updated,
 		version = version,
+		comment_count = comment_count,
 	}
 }
 
