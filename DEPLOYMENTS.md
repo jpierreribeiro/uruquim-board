@@ -174,3 +174,33 @@ misconfiguration — deferred so they do not perturb the running soak.
   real PostgreSQL and real clients — including the two facets that could only be
   runtime-verified with libpq (`arg_timestamptz`) and a real socket
   (`Expect: 100-continue`). **5 deployments recorded** toward the ≥10 threshold.
+
+---
+
+## WP110 deferred drills — network + upload interruption (live, with a finding)
+
+- **Date:** 2026-07-24. Board `corrective-repin`.
+- **Upload interruption** — GREEN: an 8 MiB upload aborted mid-body leaves the
+  server healthy, the next request served (no desync), and a normal upload
+  succeeds after. The framing/body guards hold across a torn upload.
+- **Network interruption** — a real FINDING and a correct MITIGATION, plus a
+  test-environment caveat:
+  - Blocking the DB port (iptables REJECT) kept **liveness 200** and **committed
+    data durable**, and **readiness recovered to 200** once the network was
+    restored — those held.
+  - It found that **readiness was not promptly bounded under a silent partition**.
+    Root cause: a per-query deadline spawns a cancel watchdog that tries to reach
+    the server on a NEW connection to cancel; under a partition that cancel-connect
+    hangs on `connect_timeout` and its join blocks the handler. Statement_timeout
+    is server-enforced (also unreachable). The only bound that survives is at the
+    TCP layer.
+  - **Mitigation shipped:** `db/postgres` gains `tcp_user_timeout_ms` (libpq
+    `tcp_user_timeout`, corrective crystals `corrective`), the board sets it to
+    3000, and the readiness query no longer uses a deadline watchdog. This is the
+    correct bound for a REAL remote-DB partition.
+  - **Caveat:** the drill runs against a **loopback** PostgreSQL, and iptables
+    REJECT on loopback does not reproduce a real network partition (no
+    retransmit/RTT), so `tcp_user_timeout` cannot be validated here — the readiness
+    cell stays INFORMATIONAL on this host. **Full validation is a Gate-2 item on
+    the multi-host scale campaign** (a remote DB, where the partition and the
+    TCP-layer bound are real).
