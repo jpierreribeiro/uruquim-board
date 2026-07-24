@@ -282,3 +282,23 @@ real deployment away, which accrues naturally on the next change (e.g. the board
 re-pin to the merged release SHA, or the scale-campaign build). NOT padded to 10
 with a no-op — the count is honest evidence of a system deployed and evolved
 repeatedly through real operation, which is the threshold's intent.
+
+---
+
+## #10 — CONTROLLED-PILOT RELEASE (merged to main, tagged v0.9.0-pilot)
+
+- **Date:** 2026-07-24. Board `master` `db05a64` (pins core `main` `693d378c` +
+  crystals `main` `2176357`), rebuilt from the merged RELEASE SHAs and deployed live.
+- **The clean release step, executed** (owner said "pode mergear e taguear"):
+  - core `main` ← `phase8` (ff, 41 commits) = `693d378c`
+  - crystals `main` ← `corrective` (ff) = `2176357`
+  - board `master` ← `corrective-repin` (ff) = `fe57a01`, then DEPS re-pinned = `db05a64`
+  - **tagged `v0.9.0-pilot` on all three repos.**
+- **Deployment #10 — smoke 22/22** on the release binary; health/ready 200.
+- **This is the 10th recorded deployment — the ≥10 threshold is MET.**
+- **Release scope: CONTROLLED PILOT** — synthetic data, bounded load (≤ the
+  ~300-stream capacity point), behind a proxy with `proxy_buffering off`, a
+  supervisor with `TimeoutStopSec > max_drain_time` and `LimitMEMLOCK=infinity`, a
+  cgroup sized by C-04. **NOT general availability:** GA awaits the multi-host scale
+  campaign (3,000-socket SSE + remote-DB partition validation) and a privacy review
+  before real user data (`planning/release-readiness.md`).
