@@ -85,7 +85,14 @@ ready :: proc(ctx: ^web.Context) {
 	}
 	defer pg.release(&st.db, &c)
 
-	r, qe := pg.query_one(&c, "board.ready", "SELECT 1")
+	// A SHORT per-query deadline (not the 30s statement_timeout) so readiness stays
+	// BOUNDED under a NETWORK PARTITION. Found by the WP110 network-interruption
+	// drill: acquire returns a pooled connection that is still ESTABLISHED but whose
+	// packets are now dropped, so `SELECT 1` on it would hang until the long
+	// statement/socket timeout — making /ready block instead of failing fast. A
+	// 1.5s query deadline turns a partition into a prompt 503 while liveness stays
+	// 200, which is the whole point of a readiness probe behind a load balancer.
+	r, qe := pg.query_one(&c, "board.ready", "SELECT 1", nil, pg.Query_Opts{deadline_ms = 1500})
 	defer pg.rows_close(&r)
 	if pg.is_err(qe) {
 		web.text(ctx, .Service_Unavailable, "not ready: query")
